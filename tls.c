@@ -6,6 +6,12 @@
 #include <string.h>
 #include <sysexits.h>
 #include <sys/param.h>
+#ifdef WOLFSSL
+#ifndef WOLFSSL_USER_SETTINGS
+#include <wolfssl/options.h>
+#endif
+////#include <wolfssl/wolfcrypt/settings.h>
+#endif
 #include <openssl/err.h>
 
 #ifndef MAXPATHLEN

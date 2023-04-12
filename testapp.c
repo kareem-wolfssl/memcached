@@ -27,6 +27,12 @@
 #include "util.h"
 #include "protocol_binary.h"
 #ifdef TLS
+#ifdef WOLFSSL
+#ifndef WOLFSSL_USER_SETTINGS
+#include <wolfssl/options.h>
+#endif
+////#include <wolfssl/wolfcrypt/settings.h>
+#endif
 #include <openssl/ssl.h>
 #endif
 
