@@ -28,6 +28,13 @@
 #ifdef TLS
 #include <openssl/ssl.h>
 #endif
+#ifdef WOLFSSL_MEMCACHED
+#ifndef WOLFSSL_USER_SETTINGS
+#include <wolfssl/options.h>
+#endif
+#include <wolfssl/wolfcrypt/settings.h>
+#include <wolfssl/ssl.h>
+#endif
 
 #define ITEMS_PER_ALLOC 64
 
@@ -469,7 +476,7 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         fprintf(stderr, "Failed to create IO object cache\n");
         exit(EXIT_FAILURE);
     }
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
     if (settings.ssl_enabled) {
         me->ssl_wbuf = (char *)malloc((size_t)settings.ssl_wbuf_size);
         if (me->ssl_wbuf == NULL) {
@@ -586,12 +593,18 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
                             SSL_free(item->ssl);
                         }
 #endif
+#ifdef WOLFSSL_MEMCACHED
+                        if (item->ssl) {
+                            wolfSSL_shutdown(item->ssl);
+                            wolfSSL_free(item->ssl);
+                        }
+#endif
                         close(item->sfd);
                     }
                 } else {
                     c->thread = me;
                     conn_io_queue_setup(c);
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
                     if (settings.ssl_enabled && c->ssl != NULL) {
                         assert(c->thread && c->thread->ssl_wbuf);
                         c->ssl_wbuf = c->thread->ssl_wbuf;

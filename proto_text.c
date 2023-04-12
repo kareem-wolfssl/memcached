@@ -15,6 +15,9 @@
 #ifdef TLS
 #include "tls.h"
 #endif
+#ifdef WOLFSSL_MEMCACHED
+#include "wolfssl.h"
+#endif
 #include <string.h>
 #include <stdlib.h>
 
@@ -2726,7 +2729,7 @@ static void process_lru_crawler_command(conn *c, token_t *tokens, const size_t n
         out_string(c, "ERROR");
     }
 }
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
 static void process_refresh_certs_command(conn *c, token_t *tokens, const size_t ntokens) {
     set_noreply_maybe(c, tokens, ntokens);
     char *errmsg = NULL;
@@ -2948,7 +2951,7 @@ void process_command_ascii(conn *c, char *command) {
         WANT_TOKENS_MIN(ntokens, 3);
         process_extstore_command(c, tokens, ntokens);
 #endif
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "refresh_certs") == 0) {
         process_refresh_certs_command(c, tokens, ntokens);
 #endif

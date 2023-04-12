@@ -10,6 +10,9 @@
 #ifdef TLS
 #include "tls.h"
 #endif
+#ifdef WOLFSSL_MEMCACHED
+#include "wolfssl.h"
+#endif
 #include <string.h>
 #include <stdlib.h>
 
