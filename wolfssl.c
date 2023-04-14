@@ -242,14 +242,15 @@ int ssl_init(void) {
  * This method is registered with each SSL connection and abort the SSL session
  * if a client initiates a renegotiation.
  */
+// TODO: Determine if we can ever enable renegotiation ie. is this needed?
 void ssl_callback(const WOLFSSL *s, int where, int ret) {
-    WOLFSSL* ssl = (WOLFSSL*)s;
+    /*WOLFSSL* ssl = (WOLFSSL*)s;
     if (wolfSSL_SSL_in_before(ssl)) {
         fprintf(stderr, "%d: SSL renegotiation is not supported, "
                 "closing the connection\n", wolfSSL_get_fd(ssl));
         wolfSSL_set_shutdown(ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
         return;
-    }
+    }*/
 }
 
 /*

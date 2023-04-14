@@ -90,7 +90,7 @@ ssize_t ssl_read(struct conn *c, void *buf, size_t count) {
 
     assert(c != NULL);
     ret = wolfSSL_read(c->ssl, buf, count);
-    if (ret <= 0) {
+    if (ret < 0) {
         ret = wolfSSL_get_error(c->ssl, ret);
         if (ret == WOLFSSL_ERROR_WANT_READ) {
             // Not an error.
@@ -106,7 +106,7 @@ ssize_t ssl_write(struct conn *c, const void *buf, size_t count) {
 
     assert(c != NULL);
     ret = wolfSSL_write(c->ssl, buf, count);
-    if (ret <= 0) {
+    if (ret < 0) {
         ret = wolfSSL_get_error(c->ssl, ret);
         if (ret == WOLFSSL_ERROR_WANT_WRITE) {
             // Not an error.
@@ -870,7 +870,7 @@ static void send_ascii_command(const char *buf) {
     do {
         ssize_t nw = con->write((void*)con, ptr + offset, len - offset);
 #ifdef WOLFSSL_MEMCACHED
-        if (enable_ssl && nw <= 0) {
+        if (enable_ssl && nw < 0) {
             fprintf(stderr, "Failed to write: %s\n",
                     wolfSSL_ERR_reason_error_string(nw));
             abort();
@@ -899,7 +899,7 @@ static void read_ascii_response(char *buffer, size_t size) {
     do {
         ssize_t nr = con->read(con, buffer + offset, 1);
 #ifdef WOLFSSL_MEMCACHED
-        if (enable_ssl && nr <= 0) {
+        if (enable_ssl && nr < 0) {
             fprintf(stderr, "Failed to read: %s\n",
                     wolfSSL_ERR_reason_error_string(nr));
             abort();
@@ -1091,7 +1091,7 @@ static void safe_send(const void* buf, size_t len, bool hickup)
         }
         ssize_t nw = con->write(con, ptr + offset, num_bytes);
 #ifdef WOLFSSL_MEMCACHED
-        if (enable_ssl && nw <= 0) {
+        if (enable_ssl && nw < 0) {
             fprintf(stderr, "Failed to write: %s\n",
                     wolfSSL_ERR_reason_error_string(nw));
             abort();
@@ -1119,7 +1119,7 @@ static bool safe_recv(void *buf, size_t len) {
     do {
         ssize_t nr = con->read(con, ((char*)buf) + offset, len - offset);
 #ifdef WOLFSSL_MEMCACHED
-        if (enable_ssl && nr <= 0) {
+        if (enable_ssl && nr < 0) {
             fprintf(stderr, "Failed to read: %s\n",
                     wolfSSL_ERR_reason_error_string(nr));
             abort();
@@ -2303,7 +2303,7 @@ static enum test_return test_issue_101(void) {
         do {
             ssize_t err = conns[ii]->write(conns[ii], command, cmdlen);
 #ifdef WOLFSSL_MEMCACHED
-            if (enable_ssl && err <= 0) {
+            if (enable_ssl && err < 0) {
                 ret = TEST_FAIL;
                 goto cleanup;
             } else
