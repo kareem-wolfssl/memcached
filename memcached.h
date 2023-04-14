@@ -405,7 +405,7 @@ struct stats {
     uint64_t      extstore_compact_rescues; /* items re-written during compaction */
     uint64_t      extstore_compact_skipped; /* unhit items skipped during compaction */
 #endif
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
     uint64_t      ssl_handshake_errors; /* TLS failures at accept/handshake time */
     uint64_t      ssl_new_sessions; /* successfully negotiated new (non-reused) TLS sessions */
 #endif
@@ -515,9 +515,13 @@ struct settings {
     /* start flushing to extstore after memory below this */
     unsigned int ext_global_pool_min;
 #endif
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
     bool ssl_enabled; /* indicates whether SSL is enabled */
+#ifdef TLS
     SSL_CTX *ssl_ctx; /* holds the SSL server context which has the server certificate */
+#elif WOLFSSL_MEMCACHED
+    WOLFSSL_CTX *ssl_ctx; /* holds the SSL server context which has the server certificate */
+#endif
     char *ssl_chain_cert; /* path to the server SSL chain certificate */
     char *ssl_key; /* path to the server key */
     int ssl_verify_mode; /* client certificate verify mode */
@@ -717,7 +721,7 @@ typedef struct {
 #endif
     logger *l;                  /* logger buffer */
     void *lru_bump_buf;         /* async LRU bump buffer */
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
     char   *ssl_wbuf;
 #endif
     int napi_id;                /* napi id associated with this thread */
@@ -799,14 +803,13 @@ struct conn {
     bool close_after_write; /** flush write then move to close connection */
     bool rbuf_malloced; /** read buffer was malloc'ed for ascii mget, needs free() */
     bool item_malloced; /** item for conn_nread state is a temporary malloc */
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
 #ifdef TLS
-    SSL    *ssl;
-    char   *ssl_wbuf;
-    bool ssl_enabled;
-#endif
-#ifdef WOLFSSL_MEMCACHED
+    SSL     *ssl;
+#elif WOLFSSL_MEMCACHED
     WOLFSSL *ssl;
-    char    *ssl_wbuf;
+#endif
+    char   *ssl_wbuf;
     bool ssl_enabled;
 #endif
     enum conn_states  state;

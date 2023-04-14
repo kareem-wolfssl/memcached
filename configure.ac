@@ -232,7 +232,6 @@ if test "x$enable_tls" = "xyes"; then
 fi
 
 if test "x$enable_wolfssl" = "xyes"; then
-    AC_DEFINE([TLS],1,[Set to nonzero if you want to enable TLS])
     AC_DEFINE([WOLFSSL_MEMCACHED],1,[Set to nonzero if using wolfSSL])
 fi
 
@@ -265,7 +264,8 @@ AM_CONDITIONAL([DTRACE_INSTRUMENT_OBJ],[test "$dtrace_instrument_obj" = "yes"])
 AM_CONDITIONAL([ENABLE_SASL],[test "$enable_sasl" = "yes"])
 AM_CONDITIONAL([ENABLE_EXTSTORE],[test "$enable_extstore" != "no"])
 AM_CONDITIONAL([ENABLE_ARM_CRC32],[test "$enable_arm_crc32" = "yes"])
-AM_CONDITIONAL([ENABLE_TLS],[test "$enable_tls" = "yes" || test "$enable_wolfssl" = "yes"])
+AM_CONDITIONAL([ENABLE_TLS],[test "$enable_tls" = "yes"])
+AM_CONDITIONAL([ENABLE_WOLFSSL],[test "$enable_wolfssl" = "yes"])
 AM_CONDITIONAL([ENABLE_ASAN],[test "$enable_asan" = "yes"])
 AM_CONDITIONAL([ENABLE_STATIC],[test "$enable_static" = "yes"])
 AM_CONDITIONAL([DISABLE_UNIX_SOCKET],[test "$enable_unix_socket" = "no"])
