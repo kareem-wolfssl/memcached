@@ -6,11 +6,11 @@
 #include <string.h>
 #include <sysexits.h>
 #include <sys/param.h>
-#ifdef WOLFSSL
+#ifdef WOLFSSL_MEMCACHED
 #ifndef WOLFSSL_USER_SETTINGS
 #include <wolfssl/options.h>
 #endif
-////#include <wolfssl/wolfcrypt/settings.h>
+#include <wolfssl/wolfcrypt/settings.h>
 #endif
 #include <openssl/err.h>
 

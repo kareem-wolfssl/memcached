@@ -233,7 +233,7 @@ fi
 
 if test "x$enable_wolfssl" = "xyes"; then
     AC_DEFINE([TLS],1,[Set to nonzero if you want to enable TLS])
-    AC_DEFINE([WOLFSSL],,[Define if using wolfSSL])
+    AC_DEFINE([WOLFSSL_MEMCACHED],1,[Set to nonzero if using wolfSSL])
 fi
 
 if test "x$enable_asan" = "xyes"; then

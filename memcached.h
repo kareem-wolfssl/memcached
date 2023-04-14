@@ -56,13 +56,15 @@
 
 #include "sasl_defs.h"
 #ifdef TLS
-//#ifdef WOLFSSL
-//#ifndef WOLFSSL_USER_SETTINGS
-#include <wolfssl/options.h>
-//#endif
-////#include <wolfssl/wolfcrypt/settings.h>
-//#endif
 #include <openssl/ssl.h>
+#endif
+
+#ifdef WOLFSSL_MEMCACHED
+#ifndef WOLFSSL_USER_SETTINGS
+#include <wolfssl/options.h>
+#endif
+#include <wolfssl/wolfcrypt/settings.h>
+#include <wolfssl/ssl.h>
 #endif
 
 /* for NAPI pinning feature */
@@ -800,6 +802,11 @@ struct conn {
 #ifdef TLS
     SSL    *ssl;
     char   *ssl_wbuf;
+    bool ssl_enabled;
+#endif
+#ifdef WOLFSSL_MEMCACHED
+    WOLFSSL *ssl;
+    char    *ssl_wbuf;
     bool ssl_enabled;
 #endif
     enum conn_states  state;

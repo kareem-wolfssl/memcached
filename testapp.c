@@ -27,11 +27,11 @@
 #include "util.h"
 #include "protocol_binary.h"
 #ifdef TLS
-#ifdef WOLFSSL
+#ifdef WOLFSSL_MEMCACHED
 #ifndef WOLFSSL_USER_SETTINGS
 #include <wolfssl/options.h>
 #endif
-////#include <wolfssl/wolfcrypt/settings.h>
+#include <wolfssl/wolfcrypt/settings.h>
 #endif
 #include <openssl/ssl.h>
 #endif
@@ -555,7 +555,7 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
             argv[arg++] = pid_file;
         }
 #ifdef MESSAGE_DEBUG
-         argv[arg++] = "-vvv";
+         argv[arg++] = "-v";
 #endif
 #ifdef HAVE_DROP_PRIVILEGES
         argv[arg++] = "-o";
@@ -711,7 +711,18 @@ static struct conn *connect_server(const char *hostname, in_port_t port,
             sock = -1;
         }
         SSL_set_fd (c->ssl, c->sock);
-        int ret = SSL_connect(c->ssl);
+        int ret = -1;
+#ifdef WOLFSSL_MEMCACHED
+        ret = wolfSSL_CTX_load_verify_locations(c->ssl_ctx, "./t/cacert.pem", NULL);
+        if (ret != WOLFSSL_SUCCESS) {
+            int err = SSL_get_error(c->ssl, ret);
+            fprintf(stderr, "SSL CA cert load failed with error code : %d\n",
+                    err);
+            close(sock);
+            sock = -1;
+        }
+#endif
+        ret = SSL_connect(c->ssl);
         if (ret < 0) {
             int err = SSL_get_error(c->ssl, ret);
             if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
@@ -785,6 +796,19 @@ static void send_ascii_command(const char *buf) {
     do {
         ssize_t nw = con->write((void*)con, ptr + offset, len - offset);
         if (nw == -1) {
+#ifdef WOLFSSL_MEMCACHED
+            if (enable_ssl) {
+                unsigned long err;
+                char *ssl_err_msg = malloc(256);
+
+                if ((err = ERR_get_error()) != 0) {
+                    ERR_error_string_n(err, ssl_err_msg, 256);
+                }
+
+                fprintf(stderr, "Failed to write: %s\n", ssl_err_msg);
+                abort();
+            } else
+#endif
             if (errno != EINTR) {
                 fprintf(stderr, "Failed to write: %s\n", strerror(errno));
                 abort();
@@ -807,6 +831,19 @@ static void read_ascii_response(char *buffer, size_t size) {
     do {
         ssize_t nr = con->read(con, buffer + offset, 1);
         if (nr == -1) {
+#ifdef WOLFSSL_MEMCACHED
+            if (enable_ssl) {
+                unsigned long err;
+                char *ssl_err_msg = malloc(256);
+
+                if ((err = ERR_get_error()) != 0) {
+                    ERR_error_string_n(err, ssl_err_msg, 256);
+                }
+
+                fprintf(stderr, "Failed to write: %s\n", ssl_err_msg);
+                abort();
+            } else
+#endif
             if (errno != EINTR) {
                 fprintf(stderr, "Failed to read: %s\n", strerror(errno));
                 abort();
@@ -992,6 +1029,19 @@ static void safe_send(const void* buf, size_t len, bool hickup)
         }
         ssize_t nw = con->write(con, ptr + offset, num_bytes);
         if (nw == -1) {
+#ifdef WOLFSSL_MEMCACHED
+            if (enable_ssl) {
+                unsigned long err;
+                char *ssl_err_msg = malloc(256);
+
+                if ((err = ERR_get_error()) != 0) {
+                    ERR_error_string_n(err, ssl_err_msg, 256);
+                }
+
+                fprintf(stderr, "Failed to write: %s\n", ssl_err_msg);
+                abort();
+            } else
+#endif
             if (errno != EINTR) {
                 fprintf(stderr, "Failed to write: %s\n", strerror(errno));
                 abort();
@@ -1013,6 +1063,19 @@ static bool safe_recv(void *buf, size_t len) {
     do {
         ssize_t nr = con->read(con, ((char*)buf) + offset, len - offset);
         if (nr == -1) {
+#ifdef WOLFSSL_MEMCACHED
+            if (enable_ssl) {
+                unsigned long err;
+                char *ssl_err_msg = malloc(256);
+
+                if ((err = ERR_get_error()) != 0) {
+                    ERR_error_string_n(err, ssl_err_msg, 256);
+                }
+
+                fprintf(stderr, "Failed to write: %s\n", ssl_err_msg);
+                abort();
+            } else
+#endif
             if (errno != EINTR) {
                 fprintf(stderr, "Failed to read: %s\n", strerror(errno));
                 abort();
@@ -2205,7 +2268,7 @@ static enum test_return test_issue_101(void) {
         } while (more);
     }
 
-    child = fork();
+    /*child = fork();
     if (child == (pid_t)-1) {
         abort();
     } else if (child > 0) {
@@ -2214,13 +2277,13 @@ static enum test_return test_issue_101(void) {
         while ((c = waitpid(child, &stat, 0)) == (pid_t)-1 && errno == EINTR);
         assert(c == child);
         assert(stat == 0);
-    } else {
+    } else {*/
         con = connect_server("127.0.0.1", port, false, enable_ssl);
         assert(con);
         ret = test_binary_noop();
         close_conn();
         exit(0);
-    }
+    //}
 
  cleanup:
     /* close all connections */

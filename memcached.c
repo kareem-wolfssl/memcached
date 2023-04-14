@@ -5816,6 +5816,7 @@ int main (int argc, char **argv) {
             fprintf(stderr, "ERROR: You cannot enable SSL without a TCP port.\n");
             exit(EX_USAGE);
         }
+        wolfSSL_Debugging_ON();
         // openssl init methods.
         SSL_load_error_strings();
         SSLeay_add_ssl_algorithms();
