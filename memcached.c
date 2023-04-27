@@ -757,14 +757,22 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 
     c->noreply = false;
 
-#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
+#if defined(TLS)
     if (ssl) {
-        c->ssl = (SSL_TYPE*)ssl;
+        c->ssl = (SSL*)ssl;
         c->read = ssl_read;
         c->sendmsg = ssl_sendmsg;
         c->write = ssl_write;
         c->ssl_enabled = true;
         SSL_set_info_callback(c->ssl, ssl_callback);
+    } else
+#elif defined(WOLFSSL_MEMCACHED)
+    if (ssl) {
+        c->ssl = (WOLFSSL*)ssl;
+        c->read = ssl_read;
+        c->sendmsg = ssl_sendmsg;
+        c->write = ssl_write;
+        c->ssl_enabled = true;
     } else
 #else
     // This must be NULL if TLS is not enabled.
@@ -3049,7 +3057,11 @@ static void drive_machine(conn *c) {
             } else {
                 void *ssl_v = NULL;
 #if defined(TLS) || defined(WOLFSSL_MEMCACHED)
-                SSL_TYPE *ssl = NULL;
+#ifdef TLS
+                SSL *ssl = NULL;
+#elif WOLFSSL_MEMCACHED
+                WOLFSSL *ssl = NULL;
+#endif
                 if (c->ssl_enabled) {
                     assert(IS_TCP(c->transport) && settings.ssl_enabled);
 
@@ -5594,6 +5606,7 @@ int main (int argc, char **argv) {
                     return 1;
                 }
                 switch (min_version) {
+#ifdef TLS
                     case 0:
                         settings.ssl_min_version = TLS1_VERSION;
                         break;
@@ -5607,6 +5620,24 @@ int main (int argc, char **argv) {
                     case 3:
                         settings.ssl_min_version = TLS1_3_VERSION;
                         break;
+#endif
+#elif WOLFSSL_MEMCACHED
+#ifndef NO_OLD_TLS
+                    case 0:
+                        settings.ssl_min_version = WOLFSSL_TLSV1;
+                        break;
+                    case 1:
+                        settings.ssl_min_version = WOLFSSL_TLSV1_1;
+                        break;
+#endif
+                    case 2:
+                        settings.ssl_min_version = WOLFSSL_TLSV1_2;
+                        break;
+#if defined(WOLFSSL_TLS13)
+                    case 3:
+                        settings.ssl_min_version = WOLFSSL_TLSV1_3;
+                        break;
+#endif
 #endif
                     default:
                         fprintf(stderr, "Invalid ssl_min_version. Use help to see valid options.\n");

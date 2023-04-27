@@ -156,8 +156,9 @@ static bool load_server_certificates(char **errmsg) {
               "Error loading the CA certificate: %s : %s",
               settings.ssl_ca_cert, ssl_err_msg);
         } else {
-            wolfSSL_CTX_set_client_CA_list(settings.ssl_ctx,
-              wolfSSL_load_client_CA_file(settings.ssl_ca_cert));
+            /*wolfSSL_CTX_set_client_CA_list(settings.ssl_ctx,
+              wolfSSL_load_client_CA_file(settings.ssl_ca_cert));*/
+            fprintf(stderr, "Warning: wolfSSL does not currently support setting client CA list.\n");
             success = true;
         }
     } else {
@@ -173,7 +174,7 @@ static bool load_server_certificates(char **errmsg) {
         error_msg += (err_msg_size >= errmax ? errmax - 1: err_msg_size);
         snprintf(error_msg, CRLF_NULLCHAR_LEN, "\r\n");
         // Print if there are more errors and drain the queue.
-        ERR_print_errors_fp(stderr);
+        wc_ERR_print_errors_fp(stderr);
     }
     return success;
 }
@@ -193,7 +194,7 @@ int ssl_init(void) {
     // process level context.
     settings.ssl_ctx = wolfSSL_CTX_new(wolfTLS_server_method());
 
-    wolfSSL_CTX_set_min_proto_version(settings.ssl_ctx, settings.ssl_min_version);
+    wolfSSL_CTX_SetMinVersion(settings.ssl_ctx, settings.ssl_min_version);
 
     // The server certificate, private key and validations.
     char *error_msg;
@@ -204,7 +205,6 @@ int ssl_init(void) {
     }
 
     // The verification mode of client certificate, default is SSL_VERIFY_PEER.
-    // TODO: may need to translate to WOLFSSL_xxx
     wolfSSL_CTX_set_verify(settings.ssl_ctx, settings.ssl_verify_mode, NULL);
     if (settings.ssl_ciphers && !wolfSSL_CTX_set_cipher_list(settings.ssl_ctx,
                                                     settings.ssl_ciphers)) {
@@ -231,26 +231,10 @@ int ssl_init(void) {
     // or it is not used.
 
     // Release TLS read/write buffers of idle connections
-    // wolfSSL does not currently support SSL_MODE_RELEASE_BUFFERS, this call is
-    // kept in case support is added in the future.
-    wolfSSL_CTX_set_mode(settings.ssl_ctx, SSL_MODE_RELEASE_BUFFERS);
+    // wolfSSL does not currently support SSL_MODE_RELEASE_BUFFERS.
+    /*wolfSSL_CTX_set_mode(settings.ssl_ctx, SSL_MODE_RELEASE_BUFFERS);*/
 
     return 0;
-}
-
-/*
- * This method is registered with each SSL connection and abort the SSL session
- * if a client initiates a renegotiation.
- */
-// TODO: Determine if we can ever enable renegotiation ie. is this needed?
-void ssl_callback(const WOLFSSL *s, int where, int ret) {
-    /*WOLFSSL* ssl = (WOLFSSL*)s;
-    if (wolfSSL_SSL_in_before(ssl)) {
-        fprintf(stderr, "%d: SSL renegotiation is not supported, "
-                "closing the connection\n", wolfSSL_get_fd(ssl));
-        wolfSSL_set_shutdown(ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
-        return;
-    }*/
 }
 
 /*

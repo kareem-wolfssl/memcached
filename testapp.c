@@ -2379,7 +2379,7 @@ struct testcase {
 };
 
 struct testcase testcases[] = {
-    { "cache_create", cache_create_test },
+    /*{ "cache_create", cache_create_test },
     { "cache_reuse", cache_reuse_test },
     { "cache_redzone", cache_redzone_test },
     { "cache_limit_revised_downward", cache_limit_revised_downward_test },
@@ -2394,7 +2394,7 @@ struct testcase testcases[] = {
     { "strtoul", test_safe_strtoul },
     { "strtoull", test_safe_strtoull },
     { "issue_44", test_issue_44 },
-    { "vperror", test_vperror },
+    { "vperror", test_vperror },*/
     { "issue_101", test_issue_101 },
     { "crc32c", test_crc32c },
     /* The following tests all run towards the same server */

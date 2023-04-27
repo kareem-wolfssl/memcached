@@ -4,8 +4,6 @@
 /* constant session ID context for application-level SSL session scoping.
  * used in server-side SSL session caching, when enabled. */
 #define SESSION_ID_CONTEXT "memcached"
-#define SSL_TYPE SSL
-#define SSL_CTX_TYPE SSL_CTX
 
 void SSL_LOCK(void);
 void SSL_UNLOCK(void);
