@@ -93,8 +93,7 @@ ssize_t ssl_read(struct conn *c, void *buf, size_t count) {
     if (ret < 0) {
         ret = wolfSSL_get_error(c->ssl, ret);
         if (ret == WOLFSSL_ERROR_WANT_READ) {
-            // Not an error.
-            ret = 0;
+            errno = EWOULDBLOCK;
         }
     }
 
@@ -109,8 +108,7 @@ ssize_t ssl_write(struct conn *c, const void *buf, size_t count) {
     if (ret < 0) {
         ret = wolfSSL_get_error(c->ssl, ret);
         if (ret == WOLFSSL_ERROR_WANT_WRITE) {
-            // Not an error.
-            ret = 0;
+            errno = EWOULDBLOCK;
         }
     }
 
@@ -2303,7 +2301,9 @@ static enum test_return test_issue_101(void) {
         do {
             ssize_t err = conns[ii]->write(conns[ii], command, cmdlen);
 #ifdef WOLFSSL_MEMCACHED
-            if (enable_ssl && err < 0) {
+            if (enable_ssl && err == WOLFSSL_ERROR_WANT_WRITE) {
+                more = false;
+            } else if (enable_ssl && err < 0) {
                 ret = TEST_FAIL;
                 goto cleanup;
             } else
@@ -2379,7 +2379,7 @@ struct testcase {
 };
 
 struct testcase testcases[] = {
-    /*{ "cache_create", cache_create_test },
+    { "cache_create", cache_create_test },
     { "cache_reuse", cache_reuse_test },
     { "cache_redzone", cache_redzone_test },
     { "cache_limit_revised_downward", cache_limit_revised_downward_test },
@@ -2394,7 +2394,7 @@ struct testcase testcases[] = {
     { "strtoul", test_safe_strtoul },
     { "strtoull", test_safe_strtoull },
     { "issue_44", test_issue_44 },
-    { "vperror", test_vperror },*/
+    { "vperror", test_vperror },
     { "issue_101", test_issue_101 },
     { "crc32c", test_crc32c },
     /* The following tests all run towards the same server */
