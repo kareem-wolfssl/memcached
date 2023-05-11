@@ -615,7 +615,7 @@ if test "x$enable_wolfssl" = "xyes"; then
       LDFLAGS="$saved_LDFLAGS"
       CPPFLAGS="$saved_CPPFLAGS"
       if test $le_found = no ; then
-        AC_MSG_ERROR([wolfssl (at least version 5.6.0) is required.  You can get it from $WOLFSSL_URL
+        AC_MSG_ERROR([wolfssl (at least version 5.6.1) is required.  You can get it from $WOLFSSL_URL
 
           If it's already installed, specify its path using --with-wolfssl=/dir/
     ])
@@ -954,7 +954,7 @@ then
 elif test "$GCC" = "yes"
 then
   GCC_VERSION=`$CC -dumpversion`
-  CFLAGS="$CFLAGS"
+  CFLAGS="$CFLAGS -Wall -pedantic -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
   if test "x$enable_asan" = "xyes"; then
     CFLAGS="$CFLAGS -fsanitize=address"
   fi

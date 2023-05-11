@@ -10,6 +10,7 @@
 #include <wolfssl/options.h>
 #endif
 #include <wolfssl/wolfcrypt/settings.h>
+#include <wolfssl/ssl.h>
 
 #ifndef MAXPATHLEN
 #define MAXPATHLEN 4096

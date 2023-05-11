@@ -599,7 +599,7 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
             argv[arg++] = pid_file;
         }
 #ifdef MESSAGE_DEBUG
-         argv[arg++] = "-v";
+         argv[arg++] = "-vvv";
 #endif
 #ifdef HAVE_DROP_PRIVILEGES
         argv[arg++] = "-o";
@@ -755,8 +755,7 @@ static struct conn *connect_server(const char *hostname, in_port_t port,
             sock = -1;
         }
         SSL_set_fd (c->ssl, c->sock);
-        int ret = -1;
-        ret = SSL_connect(c->ssl);
+        int ret = SSL_connect(c->ssl);
         if (ret < 0) {
             int err = SSL_get_error(c->ssl, ret);
             if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
