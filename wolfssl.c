@@ -34,13 +34,22 @@ void SSL_UNLOCK(void) {
  * which reads from the socket.
  */
 ssize_t ssl_read(conn *c, void *buf, size_t count) {
+    int ret = -1;
+
     assert (c != NULL);
     /* TODO : document the state machine interactions for SSL_read with
         non-blocking sockets/ SSL re-negotiations
     */
 
-    /* TODO: Translate and store errors in errno to match memcached expectations */
-    return wolfSSL_read(c->ssl, buf, count);
+    ret = wolfSSL_read(c->ssl, buf, count);
+    if (ret < 0) {
+        ret = wolfSSL_get_error(c->ssl, ret);
+        if (ret == WOLFSSL_ERROR_WANT_READ) {
+            errno = EWOULDBLOCK;
+        }
+    }
+
+    return ret;
 }
 
 /*
@@ -51,7 +60,7 @@ ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags) {
     size_t buf_remain = settings.ssl_wbuf_size;
     size_t bytes = 0;
     size_t to_copy;
-    int i;
+    int i, ret = -1;
 
     // ssl_wbuf is pointing to the buffer allocated in the worker thread.
     assert(c->ssl_wbuf);
@@ -77,7 +86,15 @@ ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags) {
     /* TODO : document the state machine interactions for SSL_write with
         non-blocking sockets/ SSL re-negotiations
     */
-    return wolfSSL_write(c->ssl, c->ssl_wbuf, bytes);
+    ret = wolfSSL_write(c->ssl, c->ssl_wbuf, bytes);
+    if (ret < 0) {
+        ret = wolfSSL_get_error(c->ssl, ret);
+        if (ret == WOLFSSL_ERROR_WANT_WRITE) {
+            errno = EWOULDBLOCK;
+        }
+    }
+
+    return ret;
 }
 
 /*
@@ -85,14 +102,24 @@ ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags) {
  * which encrypt and write them to the socket.
  */
 ssize_t ssl_write(conn *c, void *buf, size_t count) {
+    int ret = -1;
+
     assert (c != NULL);
-    return wolfSSL_write(c->ssl, buf, count);
+
+    ret = wolfSSL_write(c->ssl, buf, count);
+    if (ret < 0) {
+        ret = wolfSSL_get_error(c->ssl, ret);
+        if (ret == WOLFSSL_ERROR_WANT_WRITE) {
+            errno = EWOULDBLOCK;
+        }
+    }
+
+    return ret;
 }
 
 /*
  * Prints an SSL error into the buff, if there's any.
  */
-// TODO: wolfSSL_ERR_reason_error_string?
 static void print_ssl_error(char *buff, size_t len) {
     unsigned long err;
     if ((err = wolfSSL_ERR_get_error()) != 0) {
@@ -252,6 +279,15 @@ int ssl_new_session_callback(WOLFSSL *s, WOLFSSL_SESSION *sess) {
 }
 
 bool refresh_certs(char **errmsg) {
+    int ret = -1;
+
+    ret = wolfSSL_CTX_UnloadCAs(settings.ssl_ctx);
+    if (ret != WOLFSSL_SUCCESS) {
+        fprintf(stderr, "Error unloading CA certs: %s.\n",
+                wolfSSL_ERR_reason_error_string(ret));
+        return false;
+    }
+
     return load_server_certificates(errmsg);
 }
 
