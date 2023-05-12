@@ -755,7 +755,8 @@ static struct conn *connect_server(const char *hostname, in_port_t port,
             sock = -1;
         }
         SSL_set_fd (c->ssl, c->sock);
-        int ret = SSL_connect(c->ssl);
+        int ret = -1;
+        ret = SSL_connect(c->ssl);
         if (ret < 0) {
             int err = SSL_get_error(c->ssl, ret);
             if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
