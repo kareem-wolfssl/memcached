@@ -238,7 +238,11 @@ static void settings_init(void) {
     settings.ssl_wbuf_size = 16 * 1024; // default is 16KB (SSL max frame size is 17KB)
     settings.ssl_session_cache = false;
     settings.ssl_kernel_tls = false;
+#ifdef TLS
     settings.ssl_min_version = TLS1_2_VERSION;
+#elif WOLFSSL_MEMCACHED
+    settings.ssl_min_version = WOLFSSL_TLSV1_2;
+#endif
 #endif
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
@@ -4216,7 +4220,7 @@ static void usage(void) {
            "   - ssl_kernel_tls:      enable kernel TLS offload\n"
            "   - ssl_min_version:     minimum protocol version to accept (default: %s)\n",
            ssl_proto_text(settings.ssl_min_version));
-#if defined(TLS1_3_VERSION)
+#if defined(TLS1_3_VERSION) || defined(WOLFSSL_TLS13)
     printf("                          valid values are 0(%s), 1(%s), 2(%s), or 3(%s).\n",
            ssl_proto_text(TLS1_VERSION), ssl_proto_text(TLS1_1_VERSION),
            ssl_proto_text(TLS1_2_VERSION), ssl_proto_text(TLS1_3_VERSION));
@@ -4227,7 +4231,11 @@ static void usage(void) {
 #endif
     verify_default("ssl_keyformat", settings.ssl_keyformat == SSL_FILETYPE_PEM);
     verify_default("ssl_verify_mode", settings.ssl_verify_mode == SSL_VERIFY_NONE);
+#ifdef TLS
     verify_default("ssl_min_version", settings.ssl_min_version == TLS1_2_VERSION);
+#elif WOLFSSL_MEMCACHED
+    verify_default("ssl_min_version", settings.ssl_min_version == WOLFSSL_TLSV1_2);
+#endif
 #endif
     printf("-N, --napi_ids            number of napi ids. see doc/napi_ids.txt for more details\n");
     return;
