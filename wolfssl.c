@@ -6,6 +6,7 @@
 #include <string.h>
 #include <sysexits.h>
 #include <sys/param.h>
+#include <poll.h>
 #ifndef WOLFSSL_USER_SETTINGS
 #include <wolfssl/options.h>
 #endif
@@ -20,6 +21,7 @@ static pthread_mutex_t wolfssl_ctx_lock = PTHREAD_MUTEX_INITIALIZER;
 
 const unsigned ERROR_MSG_SIZE = 64;
 const size_t SSL_ERROR_MSG_SIZE = 256;
+const unsigned MAX_RETRY_COUNT = 10;
 
 void SSL_LOCK() {
     pthread_mutex_lock(&(wolfssl_ctx_lock));
@@ -35,18 +37,29 @@ void SSL_UNLOCK(void) {
  */
 ssize_t ssl_read(conn *c, void *buf, size_t count) {
     int ret = -1;
+    struct pollfd to_poll[1];
+    unsigned retry = 0;
 
     assert (c != NULL);
     /* TODO : document the state machine interactions for SSL_read with
         non-blocking sockets/ SSL re-negotiations
     */
 
-    ret = wolfSSL_read(c->ssl, buf, count);
-    if (ret < 0) {
-        ret = wolfSSL_get_error(c->ssl, ret);
-        if (ret == WOLFSSL_ERROR_WANT_READ) {
-            errno = EWOULDBLOCK;
+    do {
+        ret = wolfSSL_read(c->ssl, buf, count);
+        if (ret < 0) {
+            ret = wolfSSL_get_error(c->ssl, ret);
+            if (ret == WOLFSSL_ERROR_WANT_READ) {
+                to_poll[0].fd = c->sfd;
+                to_poll[0].events = POLLIN;
+                poll(to_poll, 1, 500);
+            }
+            retry++;
         }
+    } while (ret == WOLFSSL_ERROR_WANT_READ && retry < MAX_RETRY_COUNT);
+    if (ret == WOLFSSL_ERROR_WANT_READ) {
+        ret = -1;
+        errno = EWOULDBLOCK;
     }
 
     return ret;
@@ -60,7 +73,7 @@ ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags) {
     size_t buf_remain = settings.ssl_wbuf_size;
     size_t bytes = 0;
     size_t to_copy;
-    int i, ret = -1;
+    int i;
 
     // ssl_wbuf is pointing to the buffer allocated in the worker thread.
     assert(c->ssl_wbuf);
@@ -86,15 +99,7 @@ ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags) {
     /* TODO : document the state machine interactions for SSL_write with
         non-blocking sockets/ SSL re-negotiations
     */
-    ret = wolfSSL_write(c->ssl, c->ssl_wbuf, bytes);
-    if (ret < 0) {
-        ret = wolfSSL_get_error(c->ssl, ret);
-        if (ret == WOLFSSL_ERROR_WANT_WRITE) {
-            errno = EWOULDBLOCK;
-        }
-    }
-
-    return ret;
+    return ssl_write(c, c->ssl_wbuf, bytes);
 }
 
 /*
@@ -103,15 +108,21 @@ ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags) {
  */
 ssize_t ssl_write(conn *c, void *buf, size_t count) {
     int ret = -1;
+    unsigned retry = 0;
 
     assert (c != NULL);
 
-    ret = wolfSSL_write(c->ssl, buf, count);
-    if (ret < 0) {
-        ret = wolfSSL_get_error(c->ssl, ret);
-        if (ret == WOLFSSL_ERROR_WANT_WRITE) {
-            errno = EWOULDBLOCK;
+    do {
+        ret = wolfSSL_write(c->ssl, buf, count);
+        if (ret < 0) {
+            ret = wolfSSL_get_error(c->ssl, ret);
+            usleep(500);
+            retry++;
         }
+    } while (ret == WOLFSSL_ERROR_WANT_WRITE && retry < MAX_RETRY_COUNT);
+    if (ret == WOLFSSL_ERROR_WANT_WRITE) {
+        errno = EWOULDBLOCK;
+        ret = -1;
     }
 
     return ret;
@@ -213,6 +224,7 @@ static bool load_server_certificates(char **errmsg) {
 int ssl_init(void) {
     assert(settings.ssl_enabled);
 
+    wolfSSL_Debugging_ON();
     if (wolfSSL_Init() != WOLFSSL_SUCCESS) {
         fprintf(stderr, "Failed to initialize wolfSSL.");
         exit(EX_SOFTWARE);

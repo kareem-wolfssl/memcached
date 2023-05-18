@@ -56,6 +56,7 @@
 
 #ifdef WOLFSSL_MEMCACHED
 #include "wolfssl.h"
+#include <poll.h>
 #endif
 
 #include "proto_text.h"
@@ -3110,7 +3111,7 @@ static void drive_machine(conn *c) {
 #elif WOLFSSL_MEMCACHED
                     wolfSSL_set_fd(ssl, sfd);
                     int ret = wolfSSL_accept(ssl);
-                    if (ret <= 0) {
+                    if (ret != WOLFSSL_SUCCESS) {
                         int err = wolfSSL_get_error(ssl, ret);
                         if (err != WOLFSSL_ERROR_WANT_READ && err != WOLFSSL_ERROR_WANT_WRITE) {
                             if (settings.verbose) {
@@ -3123,6 +3124,26 @@ static void drive_machine(conn *c) {
                             stats.ssl_handshake_errors++;
                             STATS_UNLOCK();
                             break;
+                        }
+                        else {
+                            /* Unlike OpenSSL, wolfSSL does not automatically retry
+                               on non-blocking connections, the application must
+                               repeat the call until it succeeds when WANT_READ/WANT_WRITE
+                               is returned. */
+                            int maxRetries = 10;
+                            do {
+                                struct pollfd to_poll[1];
+
+                                ret = wolfSSL_accept(ssl);
+                                err = wolfSSL_get_error(ssl, ret);
+                                if (err == WOLFSSL_ERROR_WANT_READ) {
+                                    to_poll[0].fd = sfd;
+                                    to_poll[0].events = POLLIN;
+                                    poll(to_poll, 1, 500);
+                                }
+                                maxRetries--;
+                            } while ((err == WOLFSSL_ERROR_WANT_READ || err == WOLFSSL_ERROR_WANT_WRITE)
+                                     && maxRetries > 0);
                         }
                     }
 #endif

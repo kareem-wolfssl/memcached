@@ -92,9 +92,6 @@ ssize_t ssl_read(struct conn *c, void *buf, size_t count) {
     ret = wolfSSL_read(c->ssl, buf, count);
     if (ret < 0) {
         ret = wolfSSL_get_error(c->ssl, ret);
-        if (ret == WOLFSSL_ERROR_WANT_READ) {
-            errno = EWOULDBLOCK;
-        }
     }
 
     return ret;
@@ -107,9 +104,6 @@ ssize_t ssl_write(struct conn *c, const void *buf, size_t count) {
     ret = wolfSSL_write(c->ssl, buf, count);
     if (ret < 0) {
         ret = wolfSSL_get_error(c->ssl, ret);
-        if (ret == WOLFSSL_ERROR_WANT_WRITE) {
-            errno = EWOULDBLOCK;
-        }
     }
 
     return ret;
@@ -795,7 +789,7 @@ static struct conn *connect_server(const char *hostname, in_port_t port,
             sock = -1;
         }
         ret = wolfSSL_connect(c->ssl);
-        if (ret < 0) {
+        if (ret != WOLFSSL_SUCCESS) {
             int err = wolfSSL_get_error(c->ssl, ret);
             if (err != WOLFSSL_ERROR_WANT_READ && err != WOLFSSL_ERROR_WANT_WRITE) {
                 fprintf(stderr, "SSL connection failed with error code : %s\n",
@@ -2256,17 +2250,25 @@ static enum test_return test_binary_pipeline_hickup(void)
     /* Allow the thread to start */
     usleep(250);
 
+    printf("DEBUG: pipeline hickup start\n");
+    fflush(stdout);
     srand((int)time(NULL));
     for (ii = 0; ii < 2; ++ii) {
         test_binary_pipeline_hickup_chunk(buffer, buffersize);
     }
+    printf("DEBUG: pipeline hickup end\n");
+    fflush(stdout);
 
     /* send quitq to shut down the read thread ;-) */
     size_t len = raw_command(buffer, buffersize, PROTOCOL_BINARY_CMD_QUITQ,
                              NULL, 0, NULL, 0);
     safe_send(buffer, len, false);
+    printf("DEBUG: safe send end\n");
+    fflush(stdout);
 
     pthread_join(tid, NULL);
+    printf("DEBUG: thread joined\n");
+    fflush(stdout);
     free(buffer);
     return TEST_PASS;
 }
@@ -2301,7 +2303,7 @@ static enum test_return test_issue_101(void) {
         do {
             ssize_t err = conns[ii]->write(conns[ii], command, cmdlen);
 #ifdef WOLFSSL_MEMCACHED
-            if (enable_ssl && err == WOLFSSL_ERROR_WANT_WRITE) {
+            if (enable_ssl && err == cmdlen) {
                 more = false;
             } else if (enable_ssl && err < 0) {
                 ret = TEST_FAIL;
@@ -2460,6 +2462,7 @@ int main(int argc, char **argv)
 #endif
 #ifdef WOLFSSL_MEMCACHED
     if (getenv("SSL_TEST") != NULL) {
+        //wolfSSL_Debugging_ON();
         wolfSSL_Init();
         enable_ssl = true;
     }
