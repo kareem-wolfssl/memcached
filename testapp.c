@@ -2250,25 +2250,17 @@ static enum test_return test_binary_pipeline_hickup(void)
     /* Allow the thread to start */
     usleep(250);
 
-    printf("DEBUG: pipeline hickup start\n");
-    fflush(stdout);
     srand((int)time(NULL));
     for (ii = 0; ii < 2; ++ii) {
         test_binary_pipeline_hickup_chunk(buffer, buffersize);
     }
-    printf("DEBUG: pipeline hickup end\n");
-    fflush(stdout);
 
     /* send quitq to shut down the read thread ;-) */
     size_t len = raw_command(buffer, buffersize, PROTOCOL_BINARY_CMD_QUITQ,
                              NULL, 0, NULL, 0);
     safe_send(buffer, len, false);
-    printf("DEBUG: safe send end\n");
-    fflush(stdout);
 
     pthread_join(tid, NULL);
-    printf("DEBUG: thread joined\n");
-    fflush(stdout);
     free(buffer);
     return TEST_PASS;
 }
@@ -2462,7 +2454,6 @@ int main(int argc, char **argv)
 #endif
 #ifdef WOLFSSL_MEMCACHED
     if (getenv("SSL_TEST") != NULL) {
-        //wolfSSL_Debugging_ON();
         wolfSSL_Init();
         enable_ssl = true;
     }

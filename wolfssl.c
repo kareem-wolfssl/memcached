@@ -21,7 +21,7 @@ static pthread_mutex_t wolfssl_ctx_lock = PTHREAD_MUTEX_INITIALIZER;
 
 const unsigned ERROR_MSG_SIZE = 64;
 const size_t SSL_ERROR_MSG_SIZE = 256;
-const unsigned MAX_RETRY_COUNT = 10;
+const unsigned MAX_RETRY_COUNT = 5;
 
 void SSL_LOCK() {
     pthread_mutex_lock(&(wolfssl_ctx_lock));
@@ -36,7 +36,7 @@ void SSL_UNLOCK(void) {
  * which reads from the socket.
  */
 ssize_t ssl_read(conn *c, void *buf, size_t count) {
-    int ret = -1;
+    int ret = -1, err = 0;
     struct pollfd to_poll[1];
     unsigned retry = 0;
 
@@ -48,16 +48,16 @@ ssize_t ssl_read(conn *c, void *buf, size_t count) {
     do {
         ret = wolfSSL_read(c->ssl, buf, count);
         if (ret < 0) {
-            ret = wolfSSL_get_error(c->ssl, ret);
-            if (ret == WOLFSSL_ERROR_WANT_READ) {
+            err = wolfSSL_get_error(c->ssl, ret);
+            if (err == WOLFSSL_ERROR_WANT_READ) {
                 to_poll[0].fd = c->sfd;
                 to_poll[0].events = POLLIN;
                 poll(to_poll, 1, 500);
             }
-            retry++;
         }
-    } while (ret == WOLFSSL_ERROR_WANT_READ && retry < MAX_RETRY_COUNT);
-    if (ret == WOLFSSL_ERROR_WANT_READ) {
+        retry++;
+    } while (err == WOLFSSL_ERROR_WANT_READ && retry < MAX_RETRY_COUNT);
+    if (err == WOLFSSL_ERROR_WANT_READ) {
         ret = -1;
         errno = EWOULDBLOCK;
     }
@@ -107,7 +107,7 @@ ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags) {
  * which encrypt and write them to the socket.
  */
 ssize_t ssl_write(conn *c, void *buf, size_t count) {
-    int ret = -1;
+    int ret = -1, err = 0;
     unsigned retry = 0;
 
     assert (c != NULL);
@@ -115,12 +115,12 @@ ssize_t ssl_write(conn *c, void *buf, size_t count) {
     do {
         ret = wolfSSL_write(c->ssl, buf, count);
         if (ret < 0) {
-            ret = wolfSSL_get_error(c->ssl, ret);
+            err = wolfSSL_get_error(c->ssl, ret);
             usleep(500);
-            retry++;
         }
-    } while (ret == WOLFSSL_ERROR_WANT_WRITE && retry < MAX_RETRY_COUNT);
-    if (ret == WOLFSSL_ERROR_WANT_WRITE) {
+        retry++;
+    } while (err == WOLFSSL_ERROR_WANT_WRITE && retry < MAX_RETRY_COUNT);
+    if (err == WOLFSSL_ERROR_WANT_WRITE) {
         errno = EWOULDBLOCK;
         ret = -1;
     }
@@ -224,7 +224,6 @@ static bool load_server_certificates(char **errmsg) {
 int ssl_init(void) {
     assert(settings.ssl_enabled);
 
-    wolfSSL_Debugging_ON();
     if (wolfSSL_Init() != WOLFSSL_SUCCESS) {
         fprintf(stderr, "Failed to initialize wolfSSL.");
         exit(EX_SOFTWARE);
