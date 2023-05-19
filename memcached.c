@@ -54,6 +54,11 @@
 #include "tls.h"
 #endif
 
+#ifdef WOLFSSL_MEMCACHED
+#include "wolfssl.h"
+#include <poll.h>
+#endif
+
 #include "proto_text.h"
 #include "proto_bin.h"
 #include "proto_proxy.h"
@@ -221,7 +226,7 @@ static void settings_init(void) {
     settings.access = 0700;
     settings.port = 11211;
     settings.udpport = 0;
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
     settings.ssl_enabled = false;
     settings.ssl_ctx = NULL;
     settings.ssl_chain_cert = NULL;
@@ -234,7 +239,11 @@ static void settings_init(void) {
     settings.ssl_wbuf_size = 16 * 1024; // default is 16KB (SSL max frame size is 17KB)
     settings.ssl_session_cache = false;
     settings.ssl_kernel_tls = false;
+#ifdef TLS
     settings.ssl_min_version = TLS1_2_VERSION;
+#elif WOLFSSL_MEMCACHED
+    settings.ssl_min_version = WOLFSSL_TLSV1_2;
+#endif
 #endif
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
@@ -727,7 +736,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         }
     }
 
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
     c->ssl = NULL;
     c->ssl_wbuf = NULL;
     c->ssl_enabled = false;
@@ -761,6 +770,14 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         c->write = ssl_write;
         c->ssl_enabled = true;
         SSL_set_info_callback(c->ssl, ssl_callback);
+    } else
+#elif defined(WOLFSSL_MEMCACHED)
+    if (ssl) {
+        c->ssl = (WOLFSSL*)ssl;
+        c->read = ssl_read;
+        c->sendmsg = ssl_sendmsg;
+        c->write = ssl_write;
+        c->ssl_enabled = true;
     } else
 #else
     // This must be NULL if TLS is not enabled.
@@ -888,7 +905,7 @@ void conn_free(conn *c) {
         conns[c->sfd] = NULL;
         if (c->rbuf)
             free(c->rbuf);
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
         if (c->ssl_wbuf)
             c->ssl_wbuf = NULL;
 #endif
@@ -926,6 +943,12 @@ static void conn_close(conn *c) {
     if (c->ssl) {
         SSL_shutdown(c->ssl);
         SSL_free(c->ssl);
+    }
+#endif
+#ifdef WOLFSSL_MEMCACHED
+    if (c->ssl) {
+        wolfSSL_shutdown(c->ssl);
+        wolfSSL_free(c->ssl);
     }
 #endif
     close(c->sfd);
@@ -1897,7 +1920,7 @@ void server_stats(ADD_STAT add_stats, conn *c) {
 #ifdef PROXY
     proxy_stats(settings.proxy_ctx, add_stats, c);
 #endif
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
     if (settings.ssl_enabled) {
         if (settings.ssl_session_cache) {
             APPEND_STAT("ssl_new_sessions", "%llu", (unsigned long long)stats.ssl_new_sessions);
@@ -1984,7 +2007,7 @@ void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("slab_automove_freeratio", "%.3f", settings.slab_automove_freeratio);
     APPEND_STAT("ext_drop_unread", "%s", settings.ext_drop_unread ? "yes" : "no");
 #endif
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
     APPEND_STAT("ssl_enabled", "%s", settings.ssl_enabled ? "yes" : "no");
     APPEND_STAT("ssl_chain_cert", "%s", settings.ssl_chain_cert);
     APPEND_STAT("ssl_key", "%s", settings.ssl_key);
@@ -3046,8 +3069,12 @@ static void drive_machine(conn *c) {
                 close(sfd);
             } else {
                 void *ssl_v = NULL;
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
 #ifdef TLS
                 SSL *ssl = NULL;
+#elif WOLFSSL_MEMCACHED
+                WOLFSSL *ssl = NULL;
+#endif
                 if (c->ssl_enabled) {
                     assert(IS_TCP(c->transport) && settings.ssl_enabled);
 
@@ -3059,7 +3086,11 @@ static void drive_machine(conn *c) {
                         break;
                     }
                     SSL_LOCK();
+#ifdef TLS
                     ssl = SSL_new(settings.ssl_ctx);
+#elif WOLFSSL_MEMCACHED
+                    ssl = wolfSSL_new(settings.ssl_ctx);
+#endif
                     SSL_UNLOCK();
                     if (ssl == NULL) {
                         if (settings.verbose) {
@@ -3068,6 +3099,7 @@ static void drive_machine(conn *c) {
                         close(sfd);
                         break;
                     }
+#ifdef TLS
                     SSL_set_fd(ssl, sfd);
                     int ret = SSL_accept(ssl);
                     if (ret <= 0) {
@@ -3084,6 +3116,45 @@ static void drive_machine(conn *c) {
                             break;
                         }
                     }
+#elif WOLFSSL_MEMCACHED
+                    wolfSSL_set_fd(ssl, sfd);
+                    int ret = wolfSSL_accept(ssl);
+                    if (ret != WOLFSSL_SUCCESS) {
+                        int err = wolfSSL_get_error(ssl, ret);
+                        if (err != WOLFSSL_ERROR_WANT_READ && err != WOLFSSL_ERROR_WANT_WRITE) {
+                            if (settings.verbose) {
+                                fprintf(stderr, "SSL connection failed with error code : %d : %s\n",
+                                        err, wolfSSL_ERR_reason_error_string(err));
+                            }
+                            wolfSSL_free(ssl);
+                            close(sfd);
+                            STATS_LOCK();
+                            stats.ssl_handshake_errors++;
+                            STATS_UNLOCK();
+                            break;
+                        }
+                        else {
+                            /* Unlike OpenSSL, wolfSSL does not automatically retry
+                               on non-blocking connections, the application must
+                               repeat the call until it succeeds when WANT_READ/WANT_WRITE
+                               is returned. */
+                            int maxRetries = 10;
+                            do {
+                                struct pollfd to_poll[1];
+
+                                ret = wolfSSL_accept(ssl);
+                                err = wolfSSL_get_error(ssl, ret);
+                                if (err == WOLFSSL_ERROR_WANT_READ) {
+                                    to_poll[0].fd = sfd;
+                                    to_poll[0].events = POLLIN;
+                                    poll(to_poll, 1, 500);
+                                }
+                                maxRetries--;
+                            } while ((err == WOLFSSL_ERROR_WANT_READ || err == WOLFSSL_ERROR_WANT_WRITE)
+                                     && maxRetries > 0);
+                        }
+                    }
+#endif
                 }
                 ssl_v = (void*) ssl;
 #endif
@@ -3648,7 +3719,7 @@ static int server_socket(const char *interface,
                 fprintf(stderr, "failed to create listening connection\n");
                 exit(EXIT_FAILURE);
             }
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
             listen_conn_add->ssl_enabled = ssl_enabled;
 #else
             assert(ssl_enabled == false);
@@ -3668,7 +3739,7 @@ static int server_sockets(int port, enum network_transport transport,
                           FILE *portnumber_file) {
     bool ssl_enabled = false;
 
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
     const char *notls = "notls";
     ssl_enabled = settings.ssl_enabled;
 #endif
@@ -3692,7 +3763,7 @@ static int server_sockets(int port, enum network_transport transport,
             p = strtok_r(NULL, ";,", &b)) {
             uint64_t conntag = 0;
             int the_port = port;
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
             ssl_enabled = settings.ssl_enabled;
             // "notls" option is valid only when memcached is run with SSL enabled.
             if (strncmp(p, notls, strlen(notls)) == 0) {
@@ -4012,7 +4083,7 @@ static void usage(void) {
 #endif /* #ifndef DISABLE_UNIX_SOCKET */
     printf("-A, --enable-shutdown     enable ascii \"shutdown\" command\n");
     printf("-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n");
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
     printf("                          if TLS/SSL is enabled, 'notls' prefix can be used to\n"
            "                          disable for specific listeners (-l notls:<ip>:<port>) \n");
 #endif
@@ -4064,7 +4135,7 @@ static void usage(void) {
     printf("-e, --memory-file=<file>  (EXPERIMENTAL) mmap a file for item memory.\n"
            "                          use only in ram disks or persistent memory mounts!\n"
            "                          enables restartable cache (stop with SIGUSR1)\n");
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
     printf("-Z, --enable-ssl          enable TLS/SSL\n");
 #endif
     printf("-o, --extended            comma separated list of extended options\n"
@@ -4159,7 +4230,7 @@ static void usage(void) {
 #ifdef PROXY
     printf("   - proxy_config:        path to lua config file.\n");
 #endif
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
     printf("   - ssl_chain_cert:      certificate chain file in PEM format\n"
            "   - ssl_key:             private key, if not part of the -ssl_chain_cert\n"
            "   - ssl_keyformat:       private key format (PEM, DER or ENGINE) (default: PEM)\n");
@@ -4175,7 +4246,7 @@ static void usage(void) {
            "   - ssl_kernel_tls:      enable kernel TLS offload\n"
            "   - ssl_min_version:     minimum protocol version to accept (default: %s)\n",
            ssl_proto_text(settings.ssl_min_version));
-#if defined(TLS1_3_VERSION)
+#if defined(TLS1_3_VERSION) || defined(WOLFSSL_TLS13)
     printf("                          valid values are 0(%s), 1(%s), 2(%s), or 3(%s).\n",
            ssl_proto_text(TLS1_VERSION), ssl_proto_text(TLS1_1_VERSION),
            ssl_proto_text(TLS1_2_VERSION), ssl_proto_text(TLS1_3_VERSION));
@@ -4186,7 +4257,11 @@ static void usage(void) {
 #endif
     verify_default("ssl_keyformat", settings.ssl_keyformat == SSL_FILETYPE_PEM);
     verify_default("ssl_verify_mode", settings.ssl_verify_mode == SSL_VERIFY_NONE);
+#ifdef TLS
     verify_default("ssl_min_version", settings.ssl_min_version == TLS1_2_VERSION);
+#elif WOLFSSL_MEMCACHED
+    verify_default("ssl_min_version", settings.ssl_min_version == WOLFSSL_TLSV1_2);
+#endif
 #endif
     printf("-N, --napi_ids            number of napi ids. see doc/napi_ids.txt for more details\n");
     return;
@@ -4801,7 +4876,7 @@ int main (int argc, char **argv) {
         DROP_PRIVILEGES,
         RESP_OBJ_MEM_LIMIT,
         READ_BUF_MEM_LIMIT,
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
         SSL_CERT,
         SSL_KEY,
         SSL_VERIFY_MODE,
@@ -4863,7 +4938,7 @@ int main (int argc, char **argv) {
         [DROP_PRIVILEGES] = "drop_privileges",
         [RESP_OBJ_MEM_LIMIT] = "resp_obj_mem_limit",
         [READ_BUF_MEM_LIMIT] = "read_buf_mem_limit",
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
         [SSL_CERT] = "ssl_chain_cert",
         [SSL_KEY] = "ssl_key",
         [SSL_VERIFY_MODE] = "ssl_verify_mode",
@@ -5007,7 +5082,7 @@ int main (int argc, char **argv) {
             break;
         case 'Z':
             /* enable secure communication*/
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
             settings.ssl_enabled = true;
 #else
             fprintf(stderr, "This server is not built with TLS support.\n");
@@ -5465,7 +5540,7 @@ int main (int argc, char **argv) {
                 start_lru_maintainer = false;
                 settings.lru_segmented = false;
                 break;
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
             case SSL_CERT:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing ssl_chain_cert argument\n");
@@ -5565,6 +5640,7 @@ int main (int argc, char **argv) {
                     return 1;
                 }
                 switch (min_version) {
+#ifdef TLS
                     case 0:
                         settings.ssl_min_version = TLS1_VERSION;
                         break;
@@ -5578,6 +5654,24 @@ int main (int argc, char **argv) {
                     case 3:
                         settings.ssl_min_version = TLS1_3_VERSION;
                         break;
+#endif
+#elif WOLFSSL_MEMCACHED
+#ifndef NO_OLD_TLS
+                    case 0:
+                        settings.ssl_min_version = WOLFSSL_TLSV1;
+                        break;
+                    case 1:
+                        settings.ssl_min_version = WOLFSSL_TLSV1_1;
+                        break;
+#endif
+                    case 2:
+                        settings.ssl_min_version = WOLFSSL_TLSV1_2;
+                        break;
+#ifdef WOLFSSL_TLS13
+                    case 3:
+                        settings.ssl_min_version = WOLFSSL_TLSV1_3;
+                        break;
+#endif
 #endif
                     default:
                         fprintf(stderr, "Invalid ssl_min_version. Use help to see valid options.\n");
@@ -5812,7 +5906,7 @@ int main (int argc, char **argv) {
     }
 
 
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
     /*
      * Setup SSL if enabled
      */
@@ -5821,9 +5915,11 @@ int main (int argc, char **argv) {
             fprintf(stderr, "ERROR: You cannot enable SSL without a TCP port.\n");
             exit(EX_USAGE);
         }
+#ifdef TLS
         // openssl init methods.
         SSL_load_error_strings();
         SSLeay_add_ssl_algorithms();
+#endif
         // Initiate the SSL context.
         ssl_init();
     }

@@ -114,6 +114,9 @@ AS_IF([test "x$enable_sasl_pwdb" = "xyes"],
 AC_ARG_ENABLE(tls,
   [AS_HELP_STRING([--enable-tls], [Enable Transport Layer Security EXPERIMENTAL ])])
 
+AC_ARG_ENABLE(wolfssl,
+  [AS_HELP_STRING([--enable-wolfssl], [Enable Transport Layer Security using wolfSSL ])])
+
 
 AC_ARG_ENABLE(asan,
   [AS_HELP_STRING([--enable-asan], [Compile with ASAN EXPERIMENTAL ])])
@@ -228,6 +231,10 @@ if test "x$enable_tls" = "xyes"; then
     AC_DEFINE([TLS],1,[Set to nonzero if you want to enable TLS])
 fi
 
+if test "x$enable_wolfssl" = "xyes"; then
+    AC_DEFINE([WOLFSSL_MEMCACHED],1,[Set to nonzero if using wolfSSL])
+fi
+
 if test "x$enable_asan" = "xyes"; then
     AC_DEFINE([ASAN],1,[Set to nonzero if you want to compile using ASAN])
 fi
@@ -258,6 +265,7 @@ AM_CONDITIONAL([ENABLE_SASL],[test "$enable_sasl" = "yes"])
 AM_CONDITIONAL([ENABLE_EXTSTORE],[test "$enable_extstore" != "no"])
 AM_CONDITIONAL([ENABLE_ARM_CRC32],[test "$enable_arm_crc32" = "yes"])
 AM_CONDITIONAL([ENABLE_TLS],[test "$enable_tls" = "yes"])
+AM_CONDITIONAL([ENABLE_WOLFSSL],[test "$enable_wolfssl" = "yes"])
 AM_CONDITIONAL([ENABLE_ASAN],[test "$enable_asan" = "yes"])
 AM_CONDITIONAL([ENABLE_STATIC],[test "$enable_static" = "yes"])
 AM_CONDITIONAL([DISABLE_UNIX_SOCKET],[test "$enable_unix_socket" = "no"])
@@ -528,6 +536,104 @@ if test "x$enable_tls" = "xyes"; then
         CPPFLAGS="-I$ac_cv_libssl_dir/include $CPPFLAGS"
       else
         CPPFLAGS="-I$ac_cv_libssl_dir $CPPFLAGS"
+      fi
+    fi
+  ])
+fi
+
+trywolfssldir=""
+AC_ARG_WITH(wolfssl,
+       [  --with-wolfssl=PATH     Specify path to wolfssl installation ],
+       [
+                if test "x$withval" != "xno" ; then
+                        trywolfssldir=$withval
+                fi
+       ]
+)
+
+dnl ----------------------------------------------------------------------------
+dnl wolfssl detection.  swiped from libevent.  modified for wolfssl detection.
+
+WOLFSSL_URL=https://www.wolfssl.com/
+if test "x$enable_wolfssl" = "xyes"; then
+  PKG_CHECK_MODULES(WOLFSSL, wolfssl, [
+    PKG_CHECK_VAR([WOLFSSL_INCLUDEDIR], [wolfssl], [includedir],
+      [CFLAGS="$CFLAGS -I$WOLFSSL_INCLUDEDIR -I$WOLFSSL_INCLUDEDIR/wolfssl"])
+    LIBS="$LIBS $WOLFSSL_LIBS" CFLAGS="$CFLAGS $WOLFSSL_CFLAGS"], [
+    AC_CACHE_CHECK([for wolfssl directory], ac_cv_wolfssl_dir, [
+      saved_LIBS="$LIBS"
+      saved_LDFLAGS="$LDFLAGS"
+      saved_CPPFLAGS="$CPPFLAGS"
+      le_found=no
+      for ledir in $trywolfssldir "" $prefix /usr/local ; do
+        LDFLAGS="$saved_LDFLAGS"
+        LIBS="-lwolfssl $saved_LIBS"
+
+        # Skip the directory if it isn't there.
+        if test ! -z "$ledir" -a ! -d "$ledir" ; then
+          continue;
+        fi
+        if test ! -z "$ledir" ; then
+          if test -d "$ledir/lib" ; then
+            LDFLAGS="-L$ledir/lib $LDFLAGS"
+          else
+            LDFLAGS="-L$ledir $LDFLAGS"
+          fi
+          if test -d "$ledir/include" ; then
+            CPPFLAGS="-I$ledir/include/wolfssl -I$ledir/include $CPPFLAGS"
+          else
+            CPPFLAGS="-I$ledir/wolfssl -I$ledir $CPPFLAGS"
+          fi
+        fi
+        # Can I compile and link it?
+        AC_TRY_LINK([#include <sys/time.h>
+    #include <sys/types.h>
+    #include <assert.h>
+    #ifndef WOLFSSL_USER_SETTINGS
+      #include <wolfssl/options.h>
+    #endif
+    #include <wolfssl/wolfcrypt/settings.h>
+    #include <wolfssl/ssl.h>], [ WOLFSSL_CTX* ssl_ctx = WOLFSSL_CTX_new(wolfTLS_server_method());
+                                assert(LIBWOLFSSL_VERSION_HEX >= 0x05006000L);],
+           [ wolfssl_linked=yes ], [ wolfssl_linked=no ])
+        if test $wolfssl_linked = yes; then
+          if test ! -z "$ledir" ; then
+            ac_cv_wolfssl_dir=$ledir
+            _myos=`echo $target_os | cut -f 1 -d .`
+            AS_IF(test "$SUNCC" = "yes" -o "x$_myos" = "xsolaris2",
+                  [saved_LDFLAGS="$saved_LDFLAGS -Wl,-R$ledir/lib"],
+                  [AS_IF(test "$GCC" = "yes",
+                        [saved_LDFLAGS="$saved_LDFLAGS -Wl,-rpath,$ledir/lib"])])
+           else
+             ac_cv_libssl_dir="(system)"
+           fi
+           le_found=yes
+           break
+        fi
+      done
+      LIBS="$saved_LIBS"
+      LDFLAGS="$saved_LDFLAGS"
+      CPPFLAGS="$saved_CPPFLAGS"
+      if test $le_found = no ; then
+        AC_MSG_ERROR([wolfssl (at least version 5.6.1) is required.  You can get it from $WOLFSSL_URL
+
+          If it's already installed, specify its path using --with-wolfssl=/dir/
+    ])
+      fi
+    ])
+    LIBS="-lwolfssl $LIBS"
+    if test $ac_cv_wolfssl_dir != "(system)"; then
+      if test -d "$ac_cv_wolfssl_dir/lib" ; then
+        LDFLAGS="-L$ac_cv_wolfssl_dir/lib $LDFLAGS"
+        le_libdir="$ac_cv_wolfssl_dir/lib"
+      else
+        LDFLAGS="-L$ac_cv_wolfssl_dir $LDFLAGS"
+        le_libdir="$ac_cv_wolfssl_dir"
+      fi
+      if test -d "$ac_cv_wolfssl_dir/include" ; then
+        CPPFLAGS="-I$ac_cv_wolfssl_dir/include/wolfssl -I$ac_cv_wolfssl_dir/include $CPPFLAGS"
+      else
+        CPPFLAGS="-I$ac_cv_wolfssl_dir/wolfssl -I$ac_cv_wolfssl_dir $CPPFLAGS"
       fi
     fi
   ])

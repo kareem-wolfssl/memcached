@@ -22,6 +22,8 @@ list to ask questions, github issues aren't seen by everyone!
   better security. Tested only on x86-64 architectures.
 * openssl (optional) - enables TLS support. need relatively up to date
   version. pkg-config is needed to find openssl dependencies (such as -lz).
+* wolfssl (optional) - enables TLS support, as an alternate to openssl.
+  need 5.6.1 or higher.
 
 ## Environment
 
