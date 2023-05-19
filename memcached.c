@@ -762,7 +762,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 
     c->noreply = false;
 
-#if defined(TLS)
+#ifdef TLS
     if (ssl) {
         c->ssl = (SSL*)ssl;
         c->read = ssl_read;
@@ -5662,7 +5662,7 @@ int main (int argc, char **argv) {
                     case 2:
                         settings.ssl_min_version = WOLFSSL_TLSV1_2;
                         break;
-#if defined(WOLFSSL_TLS13)
+#ifdef WOLFSSL_TLS13
                     case 3:
                         settings.ssl_min_version = WOLFSSL_TLSV1_3;
                         break;
