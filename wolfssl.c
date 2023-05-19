@@ -47,13 +47,11 @@ ssize_t ssl_read(conn *c, void *buf, size_t count) {
 
     do {
         ret = wolfSSL_read(c->ssl, buf, count);
-        if (ret < 0) {
-            err = wolfSSL_get_error(c->ssl, ret);
-            if (err == WOLFSSL_ERROR_WANT_READ) {
-                to_poll[0].fd = c->sfd;
-                to_poll[0].events = POLLIN;
-                poll(to_poll, 1, 500);
-            }
+        err = wolfSSL_get_error(c->ssl, ret);
+        if (err == WOLFSSL_ERROR_WANT_READ) {
+            to_poll[0].fd = c->sfd;
+            to_poll[0].events = POLLIN;
+            poll(to_poll, 1, 500);
         }
         retry++;
     } while (err == WOLFSSL_ERROR_WANT_READ && retry < MAX_RETRY_COUNT);
@@ -114,8 +112,8 @@ ssize_t ssl_write(conn *c, void *buf, size_t count) {
 
     do {
         ret = wolfSSL_write(c->ssl, buf, count);
-        if (ret < 0) {
-            err = wolfSSL_get_error(c->ssl, ret);
+        err = wolfSSL_get_error(c->ssl, ret);
+        if (err == WOLFSSL_ERROR_WANT_WRITE) {
             usleep(500);
         }
         retry++;
@@ -304,14 +302,14 @@ bool refresh_certs(char **errmsg) {
 
 const char *ssl_proto_text(int version) {
     switch (version) {
-        case TLS1_VERSION:
+        case WOLFSSL_TLSV1:
             return "tlsv1.0";
-        case TLS1_1_VERSION:
+        case WOLFSSL_TLSV1_1:
             return "tlsv1.1";
-        case TLS1_2_VERSION:
+        case WOLFSSL_TLSV1_2:
             return "tlsv1.2";
 #if defined(TLS1_3_VERSION)
-        case TLS1_3_VERSION:
+        case WOLFSSL_TLSV1_3:
             return "tlsv1.3";
 #endif
         default:
