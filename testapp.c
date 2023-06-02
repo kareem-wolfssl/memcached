@@ -790,12 +790,10 @@ static struct conn *connect_server(const char *hostname, in_port_t port,
         ret = wolfSSL_connect(c->ssl);
         if (ret != WOLFSSL_SUCCESS) {
             int err = wolfSSL_get_error(c->ssl, ret);
-            if (err != WOLFSSL_ERROR_WANT_READ && err != WOLFSSL_ERROR_WANT_WRITE) {
-                fprintf(stderr, "SSL connection failed with error code : %s\n",
-                    wolfSSL_ERR_reason_error_string(err));
-                close(sock);
-                sock = -1;
-            }
+            fprintf(stderr, "SSL connection failed with error code : %s\n",
+                wolfSSL_ERR_reason_error_string(err));
+            close(sock);
+            sock = -1;
         }
         c->read = ssl_read;
         c->write = ssl_write;
