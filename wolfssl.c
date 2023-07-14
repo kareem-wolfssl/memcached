@@ -6,7 +6,6 @@
 #include <string.h>
 #include <sysexits.h>
 #include <sys/param.h>
-#include <poll.h>
 #ifndef WOLFSSL_USER_SETTINGS
 #include <wolfssl/options.h>
 #endif
@@ -37,24 +36,14 @@ void SSL_UNLOCK(void) {
  */
 ssize_t ssl_read(conn *c, void *buf, size_t count) {
     int ret = -1, err = 0;
-    struct pollfd to_poll[1];
-    unsigned retry = 0;
 
     assert (c != NULL);
     /* TODO : document the state machine interactions for SSL_read with
         non-blocking sockets/ SSL re-negotiations
     */
 
-    do {
-        ret = wolfSSL_read(c->ssl, buf, count);
-        err = wolfSSL_get_error(c->ssl, ret);
-        if (err == WOLFSSL_ERROR_WANT_READ) {
-            to_poll[0].fd = c->sfd;
-            to_poll[0].events = POLLIN;
-            poll(to_poll, 1, 500);
-        }
-        retry++;
-    } while (err == WOLFSSL_ERROR_WANT_READ && retry < MAX_RETRY_COUNT);
+    ret = wolfSSL_read(c->ssl, buf, count);
+    err = wolfSSL_get_error(c->ssl, ret);
     if (err == WOLFSSL_ERROR_WANT_READ) {
         ret = -1;
         errno = EWOULDBLOCK;
@@ -232,6 +221,12 @@ int ssl_init(void) {
     settings.ssl_ctx = wolfSSL_CTX_new(wolfTLS_server_method());
 
     wolfSSL_CTX_SetMinVersion(settings.ssl_ctx, settings.ssl_min_version);
+
+    // Unlike OpenSSL, wolfSSL does not enable auto retry by default.
+    // When using a nonblocking socket, the application is required to
+    // retry calls until success.  Auto retry mode lets wolfSSL handle
+    // this for reads.
+    wolfSSL_CTX_set_mode(settings.ssl_ctx, SSL_MODE_AUTO_RETRY);
 
     // The server certificate, private key and validations.
     char *error_msg;
