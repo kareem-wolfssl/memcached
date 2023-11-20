@@ -29,6 +29,13 @@
 #ifdef TLS
 #include <openssl/ssl.h>
 #endif
+#ifdef WOLFSSL_MEMCACHED
+#ifndef WOLFSSL_USER_SETTINGS
+#include <wolfssl/options.h>
+#endif
+#include <wolfssl/wolfcrypt/settings.h>
+#include <wolfssl/ssl.h>
+#endif
 
 #define TMP_TEMPLATE "/tmp/test_file.XXXXXXX"
 
@@ -40,6 +47,10 @@ struct conn {
     SSL_CTX   *ssl_ctx;
     SSL    *ssl;
 #endif
+#ifdef WOLFSSL_MEMCACHED
+    WOLFSSL_CTX *ssl_ctx;
+    WOLFSSL     *ssl;
+#endif
     ssize_t (*read)(struct conn  *c, void *buf, size_t count);
     ssize_t (*write)(struct conn *c, const void *buf, size_t count);
 };
@@ -48,7 +59,7 @@ hash_func hash;
 
 static ssize_t tcp_read(struct conn *c, void *buf, size_t count);
 static ssize_t tcp_write(struct conn *c, const void *buf, size_t count);
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
 static ssize_t ssl_read(struct conn *c, void *buf, size_t count);
 static ssize_t ssl_write(struct conn *c, const void *buf, size_t count);
 #endif
@@ -73,6 +84,31 @@ ssize_t ssl_write(struct conn *c, const void *buf, size_t count) {
     return SSL_write(c->ssl, buf, count);
 }
 #endif
+#ifdef WOLFSSL_MEMCACHED
+ssize_t ssl_read(struct conn *c, void *buf, size_t count) {
+    int ret = -1;
+
+    assert(c != NULL);
+    ret = wolfSSL_read(c->ssl, buf, count);
+    if (ret < 0) {
+        ret = wolfSSL_get_error(c->ssl, ret);
+    }
+
+    return ret;
+}
+
+ssize_t ssl_write(struct conn *c, const void *buf, size_t count) {
+    int ret = -1;
+
+    assert(c != NULL);
+    ret = wolfSSL_write(c->ssl, buf, count);
+    if (ret < 0) {
+        ret = wolfSSL_get_error(c->ssl, ret);
+    }
+
+    return ret;
+}
+#endif
 
 static pid_t server_pid;
 static in_port_t port;
@@ -89,6 +125,14 @@ static void close_conn(void) {
     }
     if (con->ssl_ctx)
         SSL_CTX_free(con->ssl_ctx);
+#endif
+#ifdef WOLFSSL_MEMCACHED
+    if (con->ssl) {
+        wolfSSL_shutdown(con->ssl);
+        wolfSSL_free(con->ssl);
+    }
+    if (con->ssl_ctx)
+        wolfSSL_CTX_free(con->ssl_ctx);
 #endif
     if (con->sock > 0) close(con->sock);
     free(con);
@@ -540,7 +584,7 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
         argv[arg++] = "-1";
         argv[arg++] = "-U";
         argv[arg++] = "0";
-#ifdef TLS
+#if defined(TLS) || defined(WOLFSSL_MEMCACHED)
         if (enable_ssl) {
             argv[arg++] = "-Z";
             argv[arg++] = "-o";
@@ -730,6 +774,44 @@ static struct conn *connect_server(const char *hostname, in_port_t port,
         c->write = ssl_write;
     } else
 #endif
+#ifdef WOLFSSL_MEMCACHED
+    if (sock > 0 && ssl) {
+        c->ssl_ctx = wolfSSL_CTX_new(wolfSSLv23_client_method());
+        if (c->ssl_ctx == NULL) {
+            fprintf(stderr, "Failed to create the SSL context.\n");
+            close(sock);
+            sock = -1;
+        }
+        c->ssl = wolfSSL_new(c->ssl_ctx);
+        if (c->ssl == NULL) {
+            fprintf(stderr, "Failed to create the SSL object.\n");
+            close(sock);
+            sock = -1;
+        }
+        wolfSSL_set_fd (c->ssl, c->sock);
+        int ret = -1;
+        ret = wolfSSL_CTX_load_verify_locations(c->ssl_ctx, "./t/cacert.pem", NULL);
+        if (ret != WOLFSSL_SUCCESS) {
+            int err = wolfSSL_get_error(c->ssl, ret);
+            fprintf(stderr, "SSL CA cert load failed with error code : %s\n",
+                    wolfSSL_ERR_reason_error_string(err));
+            close(sock);
+            sock = -1;
+        }
+        ret = wolfSSL_connect(c->ssl);
+        if (ret != WOLFSSL_SUCCESS) {
+            int err = wolfSSL_get_error(c->ssl, ret);
+            if (err != WOLFSSL_ERROR_WANT_READ && err != WOLFSSL_ERROR_WANT_WRITE) {
+                fprintf(stderr, "SSL connection failed with error code : %s\n",
+                    wolfSSL_ERR_reason_error_string(err));
+                close(sock);
+                sock = -1;
+            }
+        }
+        c->read = ssl_read;
+        c->write = ssl_write;
+    } else
+#endif
     {
         c->read = tcp_read;
         c->write = tcp_write;
@@ -789,6 +871,13 @@ static void send_ascii_command(const char *buf) {
 
     do {
         ssize_t nw = con->write((void*)con, ptr + offset, len - offset);
+#ifdef WOLFSSL_MEMCACHED
+        if (enable_ssl && nw < 0) {
+            fprintf(stderr, "Failed to write: %s\n",
+                    wolfSSL_ERR_reason_error_string(nw));
+            abort();
+        } else
+#endif
         if (nw == -1) {
             if (errno != EINTR) {
                 fprintf(stderr, "Failed to write: %s\n", strerror(errno));
@@ -811,6 +900,13 @@ static void read_ascii_response(char *buffer, size_t size) {
     bool need_more = true;
     do {
         ssize_t nr = con->read(con, buffer + offset, 1);
+#ifdef WOLFSSL_MEMCACHED
+        if (enable_ssl && nr < 0) {
+            fprintf(stderr, "Failed to read: %s\n",
+                    wolfSSL_ERR_reason_error_string(nr));
+            abort();
+        } else
+#endif
         if (nr == -1) {
             if (errno != EINTR) {
                 fprintf(stderr, "Failed to read: %s\n", strerror(errno));
@@ -996,6 +1092,13 @@ static void safe_send(const void* buf, size_t len, bool hickup)
             }
         }
         ssize_t nw = con->write(con, ptr + offset, num_bytes);
+#ifdef WOLFSSL_MEMCACHED
+        if (enable_ssl && nw < 0) {
+            fprintf(stderr, "Failed to write: %s\n",
+                    wolfSSL_ERR_reason_error_string(nw));
+            abort();
+        } else
+#endif
         if (nw == -1) {
             if (errno != EINTR) {
                 fprintf(stderr, "Failed to write: %s\n", strerror(errno));
@@ -1017,6 +1120,13 @@ static bool safe_recv(void *buf, size_t len) {
     off_t offset = 0;
     do {
         ssize_t nr = con->read(con, ((char*)buf) + offset, len - offset);
+#ifdef WOLFSSL_MEMCACHED
+        if (enable_ssl && nr < 0) {
+            fprintf(stderr, "Failed to read: %s\n",
+                    wolfSSL_ERR_reason_error_string(nr));
+            abort();
+        } else
+#endif
         if (nr == -1) {
             if (errno != EINTR) {
                 fprintf(stderr, "Failed to read: %s\n", strerror(errno));
@@ -2194,6 +2304,14 @@ static enum test_return test_issue_101(void) {
         bool more = true;
         do {
             ssize_t err = conns[ii]->write(conns[ii], command, cmdlen);
+#ifdef WOLFSSL_MEMCACHED
+            if (enable_ssl && err == cmdlen) {
+                more = false;
+            } else if (enable_ssl && err < 0) {
+                ret = TEST_FAIL;
+                goto cleanup;
+            } else
+#endif
             if (err == -1) {
                 switch (errno) {
                 case EINTR:
@@ -2239,6 +2357,14 @@ static enum test_return test_issue_101(void) {
         }
         if (c->ssl_ctx)
             SSL_CTX_free(c->ssl_ctx);
+#endif
+#ifdef WOLFSSL_MEMCACHED
+        if (c->ssl) {
+            wolfSSL_shutdown(c->ssl);
+            wolfSSL_free(c->ssl);
+        }
+        if (c->ssl_ctx)
+            wolfSSL_CTX_free(c->ssl_ctx);
 #endif
         if (c->sock > 0) close(c->sock);
         free(conns[ii]);
@@ -2333,6 +2459,12 @@ int main(int argc, char **argv)
     if (getenv("SSL_TEST") != NULL) {
         SSLeay_add_ssl_algorithms();
         SSL_load_error_strings();
+        enable_ssl = true;
+    }
+#endif
+#ifdef WOLFSSL_MEMCACHED
+    if (getenv("SSL_TEST") != NULL) {
+        wolfSSL_Init();
         enable_ssl = true;
     }
 #endif

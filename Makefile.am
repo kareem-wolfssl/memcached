@@ -78,6 +78,10 @@ if ENABLE_TLS
 memcached_SOURCES += tls.c tls.h
 endif
 
+if ENABLE_WOLFSSL
+memcached_SOURCES += wolfssl.c wolfssl.h
+endif
+
 memcached_debug_SOURCES = $(memcached_SOURCES)
 memcached_CPPFLAGS = -DNDEBUG
 memcached_debug_LDADD = @PROFILER_LDFLAGS@
@@ -165,10 +169,30 @@ test_basic_tls:
 	fi
 endif
 
+if ENABLE_WOLFSSL
+test_tls:
+	$(MAKE) SSL_TEST=1 test
+
+test_basic_tls:
+	@if test $(SSL_TEST)1 != 1; then \
+	  echo "Running basic tests with TLS"; \
+	  $(builddir)/testapp && \
+	  prove $(srcdir)/t/binary.t $(srcdir)/t/getset.t $(srcdir)/t/ssl* && \
+	  echo "Finished running basic TLS tests"; \
+	else \
+	  echo "Set SSL_TEST=1 to enable TLS tests"; \
+	fi
+endif
+
 test:	memcached-debug sizes testapp
 	$(builddir)/sizes
 	$(builddir)/testapp
 if ENABLE_TLS
+	@if test $(SSL_TEST)1 = 1; then \
+          $(MAKE) SSL_TEST=1  test_basic_tls; \
+	fi
+endif
+if ENABLE_WOLFSSL
 	@if test $(SSL_TEST)1 = 1; then \
           $(MAKE) SSL_TEST=1  test_basic_tls; \
 	fi
